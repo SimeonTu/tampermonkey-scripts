@@ -14,7 +14,7 @@ This Tampermonkey script injects user ratings from Album of The Year (AOTY) into
 1. Install Tampermonkey (if not already installed)
 
 2. Install the Script:
-- Click [here](https://raw.githubusercontent.com/SimeonTu/tampermonkey-scripts/spotify-ratings-injector/spotify-ratings-injector.user.js) to view the script.
+- Click [here](https://github.com/SimeonTu/tampermonkey-scripts/raw/refs/heads/main/spotify-ratings-injector/spotify-ratings-injector.user.js) to view the script.
 - Tampermonkey will prompt you to install it. Click Install.
 ## Usage
 Navigate to any album page on Spotify (e.g., https://open.spotify.com/album/...).
