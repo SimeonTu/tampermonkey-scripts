@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Spotify AOTY User Ratings Injector
 // @namespace    http://tampermonkey.net/
-// @version      1.5
-// @description  Injects user ratings from Album of The Year into Spotify album pages
+// @version      1.9
+// @description  Injects user ratings from Album of The Year into Spotify album pages, including album ratings
 // @author       Simeon Tudzharov
 // @match        https://open.spotify.com/album/*
 // @grant        GM_xmlhttpRequest
@@ -14,6 +14,10 @@
 
 (function () {
     'use strict';
+
+    // Variables to keep track of observers and last URL
+    let lastAlbumURL = location.href;
+    let domObserver = null;
 
     // Utility function to wait for a specific element to appear in the DOM
     function waitForElement(selector, callback, interval = 100, timeout = 10000) {
@@ -41,11 +45,15 @@
 
     // Function to log messages with a specific prefix
     function log(message) {
-        console.log(`[AOTY Injector] ${message}`);
+        // Uncomment the line below for debugging
+        // console.log(`[AOTY Injector] ${message}`);
     }
 
     // Function to inject CSS for pulse effect and enhanced placeholders
     function injectCSS() {
+        if (document.getElementById('aoty-injector-css')) {
+            return; // CSS already injected
+        }
         const css = `
             @keyframes pulse {
                 0% {
@@ -60,30 +68,64 @@
             }
             .aoty-rating {
                 box-sizing: border-box;
-                width: 27px; /* Fixed width */
-                height: 21px; /* Fixed height */
-                margin-left: 8px; /* Consistent spacing */
+                width: 27px;
+                height: 21px;
+                margin-left: 8px;
                 border-radius: 4px;
                 font-size: 0.8rem;
-                color: #000; /* Black font color */
+                color: #000;
                 font-weight: bold;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                /* Removed padding to prevent squishing */
             }
             .aoty-placeholder {
-                width: 27px; /* Match rating width */
-                height: 21px; /* Match rating height */
+                width: 27px;
+                height: 21px;
                 background-color: #ccc;
                 border-radius: 4px;
                 animation: pulse 1.5s infinite;
                 display: inline-block;
             }
+            .aoty-album-rating {
+                white-space: nowrap;
+                width: auto;
+                height: 100%;
+                margin-left: 12px;
+                display: flex;
+                align-items: center;
+            }
+            .aoty-album-placeholder {
+                width: 89.25px;
+                height: 77px;
+                background-color: #ccc;
+                border-radius: 4px;
+                animation: pulse 1.5s infinite;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 0;
+                font-size: 1em;
+            }
+            .aoty-album-rating-value {
+                white-space: nowrap;
+                width: auto;
+                height: 100%;
+                font-size: 1.2em;
+                display: flex;
+                align-items: center;
+                font-weight: unset;
+                display: none;
+                color: #000;
+                border-radius: 4px;
+                padding: 0.25rem 0.6rem;
+            }
         `;
         const style = document.createElement('style');
+        style.id = 'aoty-injector-css';
         style.textContent = css;
         document.head.appendChild(style);
+        log('Injected custom CSS for ratings.');
     }
 
     // Function to create a placeholder element
@@ -93,15 +135,22 @@
         return placeholder;
     }
 
+    // Function to create a custom placeholder for album rating
+    function createAlbumPlaceholder() {
+        const placeholder = document.createElement('span');
+        placeholder.className = 'aoty-album-placeholder';
+        return placeholder;
+    }
+
     // Function to normalize song names by removing "feat." and anything after
     function normalizeSongName(name) {
         const featRegex = /\s+(feat\.|ft\.|featuring|feat|ft)\s+.+$/i;
         return name.replace(featRegex, '').trim().toLowerCase();
     }
 
-    // Function to inject ratings placeholders into Spotify page
+    // Function to inject ratings placeholders into Spotify page for individual songs
     function injectRatings(ratingsMap) {
-        log('Injecting ratings placeholders into Spotify page.');
+        log('Injecting song ratings placeholders into Spotify page.');
 
         // Select all track rows
         const trackRows = document.querySelectorAll('div[data-testid="tracklist-row"]');
@@ -119,54 +168,101 @@
                 const songNameLower = ratingsMap === null ? songName.toLowerCase() : normalizeSongName(songName);
 
                 // Reference to the parent <a> element
-                const songLinkAnchor = songLink.parentElement; // This is the <a> element
+                const songLinkAnchor = songLink.parentElement;
 
-                // Ensure flex layout is applied (in case it's not already)
+                // Ensure flex layout is applied
                 songLinkAnchor.style.display = 'flex';
                 songLinkAnchor.style.alignItems = 'center';
 
-                // Check if a rating element already exists to prevent duplicates
-                if (!songLinkAnchor.querySelector('.aoty-rating')) {
-                    // Create the rating element
-                    const ratingSpan = document.createElement('span');
-                    ratingSpan.className = 'aoty-rating';
-
-                    if (ratingsMap !== null) {
-                        const rating = ratingsMap[songNameLower];
-                        if (rating !== undefined && !isNaN(rating)) {
-                            ratingSpan.textContent = rating;
-                            ratingSpan.style.background = getGradientColor(rating);
-                            ratingSpan.title = `${rating} User Score`;
-                        } else {
-                            ratingSpan.textContent = 'N/A';
-                            ratingSpan.style.background = 'grey';
-                            ratingSpan.title = 'No Ratings Available';
-                        }
-                    } else {
-                        // Append a placeholder initially
-                        const placeholder = createPlaceholder();
-                        ratingSpan.appendChild(placeholder);
-                    }
-
-                    // Insert the rating next to the song name
-                    songLinkAnchor.appendChild(ratingSpan);
+                // Remove existing rating if present
+                const existingRating = songLinkAnchor.querySelector('.aoty-rating');
+                if (existingRating) {
+                    existingRating.remove();
                 }
+
+                // Create the rating element
+                const ratingSpan = document.createElement('span');
+                ratingSpan.className = 'aoty-rating';
+
+                if (ratingsMap !== null) {
+                    const rating = ratingsMap[songNameLower];
+                    if (rating !== undefined && !isNaN(rating)) {
+                        ratingSpan.textContent = rating;
+                        ratingSpan.style.background = getGradientColor(rating);
+                        ratingSpan.title = `${rating} User Score`;
+                        log(`Injected rating for song: "${songName}" with rating ${rating}`);
+                    } else {
+                        ratingSpan.textContent = 'N/A';
+                        ratingSpan.style.background = 'grey';
+                        ratingSpan.title = 'No Ratings Available';
+                        log(`No rating found for song: "${songName}"`);
+                    }
+                } else {
+                    // Append a placeholder initially
+                    const placeholder = createPlaceholder();
+                    ratingSpan.appendChild(placeholder);
+                    log(`Injected placeholder for song: "${songName}"`);
+                }
+
+                // Insert the rating next to the song name
+                songLinkAnchor.appendChild(ratingSpan);
             }
         });
 
-        log('Ratings placeholders injected.');
+        log('Song ratings placeholders injected.');
     }
 
-    // Function to update placeholders with actual ratings
-    function updateRatings(ratingsMap) {
-        log('Updating placeholders with actual ratings.');
+    // Function to inject rating placeholder for the album title
+    function injectAlbumRating() {
+        log('Injecting album rating placeholder into Spotify page.');
 
-        // Select all rating elements
+        // Select the album title element
+        const albumTitleElement = document.querySelector('h1[data-encore-id="text"]');
+        if (albumTitleElement) {
+            // Ensure flex layout is applied to align rating properly
+            albumTitleElement.style.display = 'flex';
+            albumTitleElement.style.alignItems = 'center';
+
+            // Remove existing album rating if present
+            const existingAlbumRating = albumTitleElement.querySelector('.aoty-album-rating');
+            if (existingAlbumRating) {
+                existingAlbumRating.remove();
+            }
+
+            // Create the album rating container
+            const albumRatingContainer = document.createElement('span');
+            albumRatingContainer.className = 'aoty-album-rating';
+
+            // Create the placeholder
+            const placeholder = createAlbumPlaceholder();
+
+            // Create the actual rating span
+            const ratingValueSpan = document.createElement('span');
+            ratingValueSpan.className = 'aoty-album-rating-value';
+
+            // Append both to the container
+            albumRatingContainer.appendChild(placeholder);
+            albumRatingContainer.appendChild(ratingValueSpan);
+
+            // Insert the album rating container next to the album title
+            albumTitleElement.appendChild(albumRatingContainer);
+
+            log('Injected album rating placeholder.');
+        } else {
+            log('Album title element not found. Cannot inject album rating.');
+        }
+    }
+
+    // Function to update placeholders with actual song ratings
+    function updateRatings(ratingsMap) {
+        log('Updating song rating placeholders with actual ratings.');
+
+        // Select all rating elements for songs
         const ratingElements = document.querySelectorAll('.aoty-rating');
 
         ratingElements.forEach(ratingSpan => {
             // Check if it's a placeholder
-            if (ratingSpan.querySelector('.aoty-placeholder')) {
+            if (ratingSpan.querySelector('.aoty-placeholder') || ratingSpan.textContent === 'N/A') {
                 // Find the associated song name
                 const songLinkDiv = ratingSpan.parentElement.querySelector('div[data-encore-id="text"]');
                 if (songLinkDiv) {
@@ -174,46 +270,150 @@
                     const songNameLower = normalizeSongName(songName);
                     const rating = ratingsMap ? ratingsMap[songNameLower] : null;
 
+                    // Remove existing content (placeholder)
+                    ratingSpan.innerHTML = '';
+
                     if (rating !== null && !isNaN(rating)) {
                         ratingSpan.textContent = rating;
                         ratingSpan.style.background = getGradientColor(rating);
                         ratingSpan.title = `${rating} User Score`;
-                    } else if (ratingsMap !== null) { // Ratings have been fetched but no rating found
+                        log(`Updated rating for song: "${songName}" to ${rating}`);
+                    } else if (ratingsMap !== null) {
                         ratingSpan.textContent = 'N/A';
                         ratingSpan.style.background = 'grey';
                         ratingSpan.title = 'No Ratings Available';
-                    } else { // Ratings are still loading or failed to fetch
-                        // Optionally, keep the placeholder or set to N/A
+                        log(`No rating available for song: "${songName}"`);
+                    } else {
                         ratingSpan.textContent = 'N/A';
                         ratingSpan.style.background = 'grey';
                         ratingSpan.title = 'No Ratings Available';
+                        log(`Failed to update rating for song: "${songName}"`);
                     }
                 }
             }
         });
 
-        log('Ratings updated.');
+        log('Song ratings updated.');
     }
 
-    // Function to observe changes in the DOM and inject ratings for new tracks
-    function observeDOMChanges(ratingsMap) {
-        const observer = new MutationObserver((mutations) => {
-            mutations.forEach((mutation) => {
-                if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-                    // Re-inject ratings for new tracks
-                    injectRatings(ratingsMap);
+    // Function to update the album rating placeholder with the actual rating
+    function updateAlbumRating(rating) {
+        log('Updating album rating placeholder with actual rating.');
+
+        // Select the album rating container
+        const albumTitleElement = document.querySelector('h1[data-encore-id="text"]');
+        if (albumTitleElement) {
+            const albumRatingContainer = albumTitleElement.querySelector('.aoty-album-rating');
+            if (albumRatingContainer) {
+                const placeholder = albumRatingContainer.querySelector('.aoty-album-placeholder');
+                const ratingValueSpan = albumRatingContainer.querySelector('.aoty-album-rating-value');
+
+                if (ratingValueSpan) {
+                    if (rating !== null && !isNaN(rating)) {
+                        ratingValueSpan.textContent = rating;
+                        ratingValueSpan.style.background = getGradientColor(rating);
+                        ratingValueSpan.title = `${rating} User Score`;
+                        ratingValueSpan.style.display = 'flex';
+                        log(`Updated album rating to ${rating}`);
+                    } else {
+                        ratingValueSpan.textContent = 'N/A';
+                        ratingValueSpan.style.background = 'grey';
+                        ratingValueSpan.title = 'No Ratings Available';
+                        ratingValueSpan.style.display = 'flex';
+                        log('No album rating available.');
+                    }
                 }
+
+                if (placeholder) {
+                    // Hide the placeholder
+                    placeholder.style.width = '0';
+                    placeholder.style.height = '0';
+                    placeholder.style.padding = '0';
+                    placeholder.style.margin = '0';
+                    placeholder.style.visibility = 'hidden';
+                }
+            } else {
+                log('Album rating container not found. Cannot update album rating.');
+            }
+        } else {
+            log('Album title element not found. Cannot update album rating.');
+        }
+    }
+
+    // Function to observe changes in the track list and inject ratings for new tracks
+    function observeDOMChanges(ratingsMap) {
+        // Disconnect any existing observer
+        if (domObserver) {
+            domObserver.disconnect();
+        }
+
+        // Select the element that contains the tracklist
+        const tracklistElement = document.querySelector('div[data-testid="track-list"]');
+        if (!tracklistElement) {
+            log('Tracklist element not found. Cannot observe DOM changes.');
+            return;
+        }
+
+        domObserver = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                // Re-inject ratings for new tracks
+                injectRatings(ratingsMap);
             });
         });
 
-        observer.observe(document.body, { childList: true, subtree: true });
+        domObserver.observe(tracklistElement, { childList: true, subtree: true });
+        log('Started observing DOM changes for tracklist.');
     }
 
-    // Main function to execute the script
-    async function main() {
-        log('Script started.');
+    // Function to listen for URL changes using history API interception
+    function observeURLChanges() {
+        // Save original pushState and replaceState functions
+        const originalPushState = history.pushState;
+        const originalReplaceState = history.replaceState;
 
-        // Inject the CSS for placeholders
+        function onHistoryChange(event) {
+            setTimeout(() => {
+                if (location.href !== lastAlbumURL) {
+                    if (!location.href.includes('/album/')) {
+                        // Not an album page
+                        lastAlbumURL = location.href;
+                        return;
+                    }
+                    log('URL changed. Re-initializing script.');
+                    lastAlbumURL = location.href;
+
+                    // Disconnect any previous DOM observers
+                    if (domObserver) {
+                        domObserver.disconnect();
+                        domObserver = null;
+                    }
+
+                    // Re-initialize the script
+                    processAlbumPage();
+                }
+            }, 100);
+        }
+
+        history.pushState = function () {
+            originalPushState.apply(this, arguments);
+            onHistoryChange();
+        };
+
+        history.replaceState = function () {
+            originalReplaceState.apply(this, arguments);
+            onHistoryChange();
+        };
+
+        window.addEventListener('popstate', onHistoryChange);
+
+        log('Started observing URL changes.');
+    }
+
+    // Function to process the album page
+    async function processAlbumPage() {
+        log('Processing album page.');
+
+        // Inject the CSS for placeholders and ratings
         injectCSS();
 
         // Step 1: Wait for artist name element
@@ -228,6 +428,7 @@
 
                 // Step 3: Inject placeholders before fetching data
                 injectRatings(null); // Passing null to inject placeholders immediately
+                injectAlbumRating();  // Inject album rating placeholder
 
                 // Step 4: Construct search URL
                 const query = encodeURIComponent(`${artistName} ${albumName}`);
@@ -239,16 +440,14 @@
                     method: "GET",
                     url: searchURL,
                     headers: {
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-                            "AppleWebKit/537.36 (KHTML, like Gecko) " +
-                            "Chrome/115.0.0.0 Safari/537.36",
-                        "Accept": "text/html,application/xhtml+xml,application/xml;" +
-                            "q=0.9,image/webp,*/*;q=0.8"
+                        "User-Agent": "Mozilla/5.0",
+                        "Accept": "text/html"
                     },
                     onload: function (response) {
                         if (response.status !== 200) {
                             log(`Failed to fetch search results. Status: ${response.status}`);
                             updateRatings(null);
+                            updateAlbumRating(null);
                             return;
                         }
 
@@ -268,16 +467,14 @@
                                 method: "GET",
                                 url: albumURL,
                                 headers: {
-                                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-                                        "AppleWebKit/537.36 (KHTML, like Gecko) " +
-                                        "Chrome/115.0.0.0 Safari/537.36",
-                                    "Accept": "text/html,application/xhtml+xml,application/xml;" +
-                                        "q=0.9,image/webp,*/*;q=0.8"
+                                    "User-Agent": "Mozilla/5.0",
+                                    "Accept": "text/html"
                                 },
                                 onload: function (albumResponse) {
                                     if (albumResponse.status !== 200) {
                                         log(`Failed to fetch album page. Status: ${albumResponse.status}`);
                                         updateRatings(null);
+                                        updateAlbumRating(null);
                                         return;
                                     }
 
@@ -288,6 +485,7 @@
                                     if (trackRows.length === 0) {
                                         log('No track ratings found.');
                                         updateRatings(null);
+                                        updateAlbumRating(null);
                                         return;
                                     }
 
@@ -306,10 +504,25 @@
                                         }
                                     });
 
-                                    log(`Extracted Ratings: ${JSON.stringify(ratingsMap)}`);
+                                    log(`Extracted Song Ratings: ${JSON.stringify(ratingsMap)}`);
+
+                                    // Extract album rating
+                                    let albumRating = null;
+                                    const albumRatingElement = albumDoc.querySelector('div.albumUserScore a');
+                                    if (albumRatingElement) {
+                                        const ratingText = albumRatingElement.textContent.trim();
+                                        albumRating = parseInt(ratingText, 10);
+                                        if (isNaN(albumRating)) {
+                                            albumRating = null;
+                                        }
+                                        log(`Extracted Album Rating: ${albumRating !== null ? albumRating : 'N/A'}`);
+                                    } else {
+                                        log('Album rating element not found on AOTY page.');
+                                    }
 
                                     // Step 7: Update the placeholders with actual ratings
                                     updateRatings(ratingsMap);
+                                    updateAlbumRating(albumRating);
 
                                     // Step 8: Start observing DOM changes for dynamic content
                                     observeDOMChanges(ratingsMap);
@@ -317,20 +530,33 @@
                                 onerror: function (err) {
                                     log(`Error fetching album page: ${err}`);
                                     updateRatings(null);
+                                    updateAlbumRating(null);
                                 }
                             });
                         } else {
                             log('No search results found.');
                             updateRatings(null);
+                            updateAlbumRating(null);
                         }
                     },
                     onerror: function (err) {
                         log(`Error fetching search results: ${err}`);
                         updateRatings(null);
+                        updateAlbumRating(null);
                     }
                 });
             });
         });
+    }
+
+    // Main function to execute the script
+    async function main() {
+        log('Script started.');
+        // Start observing URL changes
+        observeURLChanges();
+
+        // Process the initial album page
+        processAlbumPage();
     }
 
     // Execute the main function
