@@ -8,8 +8,8 @@
 // @grant        GM_xmlhttpRequest
 // @connect      albumoftheyear.org
 // @run-at       document-end
-// @updateURL    https://raw.githubusercontent.com/SimeonTu/tampermonkey-scripts/spotify-ratings-injector/spotify-ratings-injector.user.js
-// @downloadURL  https://raw.githubusercontent.com/SimeonTu/tampermonkey-scripts/spotify-ratings-injector/spotify-ratings-injector.user.js
+// @updateURL    https://github.com/SimeonTu/tampermonkey-scripts/raw/refs/heads/main/spotify-ratings-injector/spotify-ratings-injector.user.js
+// @downloadURL  https://github.com/SimeonTu/tampermonkey-scripts/raw/refs/heads/main/spotify-ratings-injector/spotify-ratings-injector.user.js
 // ==/UserScript==
 
 (function () {
