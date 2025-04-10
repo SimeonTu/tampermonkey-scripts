@@ -2,6 +2,8 @@
 
 This Tampermonkey script injects user ratings from Album of The Year (AOTY) into Spotify album pages. The script automatically fetches ratings for tracks in an album and displays them alongside the track titles. It also includes the total rating for the album itself next to the album title.
 
+![Spotify AOTY User Ratings Injector](https://i.imgur.com/hlKMBpx.png)
+
 
 ## Features
 
